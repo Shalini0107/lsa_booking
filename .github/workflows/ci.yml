@@ -1,0 +1,53 @@
+name: CI
+
+"on":
+  push:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: lsa_booking
+          MYSQL_USER: lsa_booking_user
+          MYSQL_PASSWORD: changeme
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      DB_NAME: lsa_booking
+      DB_USER: lsa_booking_user
+      DB_PASSWORD: changeme
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install system dependencies for mysqlclient
+        run: sudo apt-get update && sudo apt-get install -y default-libmysqlclient-dev build-essential pkg-config
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Grant test database privileges
+        run: |
+          mysql -h 127.0.0.1 -P 3306 -uroot -proot -e "GRANT ALL PRIVILEGES ON test_lsa_booking.* TO 'lsa_booking_user'@'%'; FLUSH PRIVILEGES;"
+
+      - name: Run tests
+        run: python manage.py test bookings
