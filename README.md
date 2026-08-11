@@ -89,7 +89,7 @@ Create a `.env` file in the project root:
 ```
 DB_NAME=lsa_booking
 DB_USER=lsa_booking_user
-DB_PASSWORD=changeme
+DB_PASSWORD= YOUR DB PASSWORD
 DB_HOST=localhost
 DB_PORT=3306
 EXTERNAL_VERIFICATION_SERVICE_URL=https://httpbin.org/post
