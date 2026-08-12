@@ -10,6 +10,10 @@ class ExternalServiceError(Exception):
     """Raised when the external verification service cannot confirm a booking."""
 
 
+class LSANotVerifiedError(ExternalServiceError):
+    """Raised when the verification service explicitly denies clearance for an LSA."""
+
+
 def verify_lsa_for_booking(lsa, start_time, end_time):
     """
     Calls a mock third-party verification service (e.g. a background-check /
@@ -43,6 +47,11 @@ def verify_lsa_for_booking(lsa, start_time, end_time):
     except ValueError as exc:
         logger.error('Verification service returned a non-JSON response for lsa_id=%s', lsa.id)
         raise ExternalServiceError('Verification service returned an invalid response.') from exc
+
+    if not isinstance(data, dict) or not data.get('verified', False):
+        reason = data.get('reason', 'LSA is not cleared for this booking.') if isinstance(data, dict) else 'LSA is not cleared for this booking.'
+        logger.warning('Verification DENIED for lsa_id=%s: %s', lsa.id, data)
+        raise LSANotVerifiedError(reason)
 
     logger.info('Verification service confirmed lsa_id=%s (status=%s)', lsa.id, response.status_code)
     return data

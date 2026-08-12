@@ -103,6 +103,9 @@ EXTERNAL_VERIFICATION_SERVICE_TIMEOUT = float(
     os.environ.get('EXTERNAL_VERIFICATION_SERVICE_TIMEOUT', '5')
 )
 
+# Shared secret used to verify the payment provider's webhook signature (G3).
+PAYMENT_WEBHOOK_SECRET = os.environ.get('PAYMENT_WEBHOOK_SECRET', 'dev-webhook-secret-change-me')
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
