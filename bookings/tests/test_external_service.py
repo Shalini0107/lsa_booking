@@ -6,7 +6,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from bookings.models import LSAProfile
-from bookings.services.external_service import ExternalServiceError, verify_lsa_for_booking
+from bookings.services.external_service import ExternalServiceError, LSANotVerifiedError, verify_lsa_for_booking
 
 
 class VerifyLsaForBookingTests(TestCase):
@@ -27,15 +27,26 @@ class VerifyLsaForBookingTests(TestCase):
         # T-05
         mock_response = Mock()
         mock_response.raise_for_status.return_value = None
-        mock_response.json.return_value = {'status': 'verified'}
+        mock_response.json.return_value = {'verified': True, 'status': 'verified'}
         mock_response.status_code = 200
         mock_post.return_value = mock_response
 
         with self.assertLogs('bookings.services.external_service', level='INFO') as logs:
             result = verify_lsa_for_booking(self.lsa, self.start_time, self.end_time)
 
-        self.assertEqual(result, {'status': 'verified'})
+        self.assertEqual(result, {'verified': True, 'status': 'verified'})
         self.assertTrue(any('confirmed' in message for message in logs.output))
+
+    @patch('bookings.services.external_service.requests.post')
+    def test_negative_verdict_raises_lsa_not_verified_error(self, mock_post):
+        mock_response = Mock()
+        mock_response.raise_for_status.return_value = None
+        mock_response.json.return_value = {'verified': False, 'reason': 'clearance expired'}
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
+
+        with self.assertRaises(LSANotVerifiedError):
+            verify_lsa_for_booking(self.lsa, self.start_time, self.end_time)
 
     @patch('bookings.services.external_service.requests.post')
     def test_timeout_raises_external_service_error_and_logs(self, mock_post):
