@@ -19,7 +19,7 @@ Parents book time with LSAs for children with learning difficulties. This module
 - `GET /api/v1/lsas/search/` — search available LSAs by skill, N+1-safe.
 - `POST /api/payments/webhook/` — mock payment event ingestion that confirms or cancels the linked booking.
 - Mock third-party verification call (via `requests`) on every booking attempt, with timeout/exception handling and logging.
-- 19 automated tests (`unittest`, via Django's test runner) covering success, validation failure, overlap, search, and external-service failure paths.
+- 22 automated tests (`unittest`, via Django's test runner) covering success, validation failure, overlap, search, external-service failure paths, webhook signature verification, and the webhook-confirm race guard.
 - GitHub Actions CI running the full suite against a real MySQL service container on every push.
 
 ## Tech Stack
@@ -168,6 +168,10 @@ Creates a booking. Also available at `POST /api/bookings/` — see [Path decisio
   ```json
   {"detail": "This LSA already has a booking that overlaps the requested time range."}
   ```
+- `403 Forbidden` — the external verification service explicitly denied clearance for the LSA (as opposed to being unreachable):
+  ```json
+  {"detail": "LSA is not cleared for this booking."}
+  ```
 - `502 Bad Gateway` — the mock external verification service failed or timed out:
   ```json
   {"detail": "Unable to verify LSA availability with the external verification service. Please try again."}
@@ -201,6 +205,16 @@ GET /api/v1/lsas/search/?skills=Dyslexia
 
 Accepts a mock payment event and transitions the linked booking.
 
+**Every request must be signed.** Send an `X-Signature` header containing the HMAC-SHA256 hex digest of the raw request body, keyed with `PAYMENT_WEBHOOK_SECRET` (from `.env`, defaults to `dev-webhook-secret-change-me`):
+
+```python
+import hashlib, hmac, json
+
+body = json.dumps(payload).encode()
+signature = hmac.new(PAYMENT_WEBHOOK_SECRET.encode(), body, hashlib.sha256).hexdigest()
+# POST body with header: X-Signature: <signature>
+```
+
 **Request**
 ```json
 {
@@ -225,6 +239,16 @@ Accepts a mock payment event and transitions the linked booking.
 
 `status` is `"success"` or `"failure"` — see [Payment/webhook stretch goal](#paymentwebhook-stretch-goal) for how each maps to booking state.
 
+**Failure responses**
+- `401 Unauthorized` — missing or invalid `X-Signature`:
+  ```json
+  {"detail": "Invalid signature."}
+  ```
+- `409 Conflict` — a `"success"` event would confirm the booking into a slot another booking has since taken (e.g. it was cancelled, rebooked, then a delayed webhook arrives):
+  ```json
+  {"detail": "Booking can no longer be confirmed: the slot is taken."}
+  ```
+
 ## Testing Instructions
 
 Run the full suite:
@@ -233,14 +257,14 @@ Run the full suite:
 python manage.py test bookings
 ```
 
-19 tests across four files:
+22 tests across four files:
 
 | File | Covers |
 |---|---|
 | `test_bookings.py` | Valid booking (201), invalid payload variants (400), overlap rejection (409), adjacent non-overlap (201), verification failure (502) |
 | `test_search.py` | Skill filter, no filter, unmatched skill, N+1 query-count assertion |
-| `test_external_service.py` | Mock service success, timeout, connection error, non-2xx response, malformed JSON — all mocked via `unittest.mock.patch`, no real network calls |
-| `test_payments.py` | Webhook success → booking confirmed, webhook failure → booking cancelled, unknown `booking_id` rejected |
+| `test_external_service.py` | Mock service success, timeout, connection error, non-2xx response, malformed JSON, explicit negative verification verdict (`LSANotVerifiedError`) — all mocked via `unittest.mock.patch`, no real network calls |
+| `test_payments.py` | Webhook success → booking confirmed, webhook failure → booking cancelled, unknown `booking_id` rejected, unsigned request rejected (401), confirm-into-overlap rejected (409) |
 
 The test runner creates and destroys a real `test_lsa_booking` MySQL database each run (see Setup step 4) — there is no SQLite substitution.
 
@@ -356,5 +380,4 @@ The assignment leaves several details unspecified. Where that happened, I made a
 - Authentication/authorization on all endpoints (currently explicitly out of scope).
 - Pagination on `GET /api/v1/lsas/search/` for large result sets.
 - A `PATCH`/cancel endpoint for parents to cancel their own bookings directly, rather than only via the payment webhook.
-- Webhook signature verification (HMAC) to authenticate that events genuinely originate from the payment provider, rather than accepting any POST body.
 - Replace the `httpbin.org` placeholder verification URL with a real vendor integration when one is chosen.
